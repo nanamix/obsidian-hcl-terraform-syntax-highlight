@@ -1,0 +1,32 @@
+.obsidian-hcl-terraform-codeblock {
+  overflow-x: auto;
+}
+
+.obsidian-hcl-terraform-code {
+  display: block;
+  white-space: pre;
+}
+
+.obsidian-hcl-terraform-code .tok-keyword {
+  color: var(--code-keyword, #c678dd);
+}
+
+.obsidian-hcl-terraform-code .tok-string {
+  color: var(--code-string, #98c379);
+}
+
+.obsidian-hcl-terraform-code .tok-propertyName {
+  color: var(--code-property, #61afef);
+}
+
+.obsidian-hcl-terraform-code .tok-literal {
+  color: var(--code-value, #d19a66);
+}
+
+.obsidian-hcl-terraform-code .tok-punctuation {
+  color: var(--code-punctuation, var(--text-muted));
+}
+
+.obsidian-hcl-terraform-code .tok-definition {
+  font-weight: 600;
+}
