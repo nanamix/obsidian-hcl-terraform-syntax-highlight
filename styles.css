@@ -11,7 +11,15 @@
   color: var(--code-keyword, #c678dd);
 }
 
+.obsidian-hcl-terraform-editor-token.tok-keyword {
+  color: var(--code-keyword, #c678dd);
+}
+
 .obsidian-hcl-terraform-code .tok-string {
+  color: var(--code-string, #98c379);
+}
+
+.obsidian-hcl-terraform-editor-token.tok-string {
   color: var(--code-string, #98c379);
 }
 
@@ -19,7 +27,15 @@
   color: var(--code-property, #61afef);
 }
 
+.obsidian-hcl-terraform-editor-token.tok-propertyName {
+  color: var(--code-property, #61afef);
+}
+
 .obsidian-hcl-terraform-code .tok-literal {
+  color: var(--code-value, #d19a66);
+}
+
+.obsidian-hcl-terraform-editor-token.tok-literal {
   color: var(--code-value, #d19a66);
 }
 
@@ -27,6 +43,16 @@
   color: var(--code-punctuation, var(--text-muted));
 }
 
+.obsidian-hcl-terraform-editor-token.tok-punctuation {
+  color: var(--code-punctuation, var(--text-muted));
+}
+
 .obsidian-hcl-terraform-code .tok-definition {
   font-weight: 600;
+}
+
+.obsidian-hcl-terraform-code .tok-comment,
+.obsidian-hcl-terraform-editor-token.tok-comment {
+  color: var(--code-comment, var(--text-faint));
+  font-style: italic;
 }

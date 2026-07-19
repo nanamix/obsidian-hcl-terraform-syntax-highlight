@@ -1,7 +1,7 @@
 {
   "id": "obsidian-hcl-terraform-syntax-highlight",
   "name": "HCL Terraform Syntax Highlight",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "minAppVersion": "1.7.0",
   "description": "Adds editor syntax highlighting for fenced HCL, Terraform, tf, and tfvars code blocks.",
   "author": "jyha",

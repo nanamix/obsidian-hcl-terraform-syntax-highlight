@@ -5,7 +5,11 @@ const watch = process.argv.includes("watch");
 const buildOptions = {
   entryPoints: ["main.ts"],
   bundle: true,
-  external: ["obsidian"],
+  external: [
+    "obsidian",
+    "@codemirror/state",
+    "@codemirror/view",
+  ],
   format: "cjs",
   target: "es2018",
   platform: "browser",

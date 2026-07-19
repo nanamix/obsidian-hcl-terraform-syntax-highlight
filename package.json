@@ -1,6 +1,6 @@
 {
   "name": "obsidian-hcl-terraform-syntax-highlight",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Obsidian plugin that enables HCL/Terraform fenced code block syntax highlighting in the editor.",
   "scripts": {
