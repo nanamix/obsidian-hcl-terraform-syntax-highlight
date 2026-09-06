@@ -78,15 +78,19 @@ function buildEditorDecorations(view: EditorView): DecorationSet {
     return builder.finish();
   }
 
+  const firstVisibleFrom = visibleRanges[0].from;
   const maxVisibleTo = visibleRanges[visibleRanges.length - 1].to;
+  const firstVisibleLine = doc.lineAt(firstVisibleFrom);
+  const maxVisibleLine = doc.lineAt(maxVisibleTo);
   let visibleRangeIndex = 0;
-  let inSupportedFence = false;
+  let inSupportedFence = isInsideSupportedFenceBefore(doc, firstVisibleLine.from);
 
-  for (let lineNumber = 1; lineNumber <= doc.lines; lineNumber += 1) {
+  for (
+    let lineNumber = firstVisibleLine.number;
+    lineNumber <= maxVisibleLine.number;
+    lineNumber += 1
+  ) {
     const line = doc.line(lineNumber);
-    if (line.from > maxVisibleTo) {
-      break;
-    }
 
     const text = line.text;
     const lineFrom = line.from;
@@ -120,6 +124,32 @@ function buildEditorDecorations(view: EditorView): DecorationSet {
   }
 
   return builder.finish();
+}
+
+function isInsideSupportedFenceBefore(
+  doc: EditorView["state"]["doc"],
+  position: number,
+): boolean {
+  if (position <= 0) {
+    return false;
+  }
+
+  const prefix = doc.sliceString(0, position);
+  const lines = prefix.split(/\r?\n/);
+  let inSupportedFence = false;
+
+  for (const line of lines) {
+    if (!inSupportedFence && fencePattern.test(line)) {
+      inSupportedFence = true;
+      continue;
+    }
+
+    if (inSupportedFence && closingFencePattern.test(line)) {
+      inSupportedFence = false;
+    }
+  }
+
+  return inSupportedFence;
 }
 
 function addHclTokenDecorations(
