@@ -83,7 +83,7 @@ function buildEditorDecorations(view: EditorView): DecorationSet {
   const firstVisibleLine = doc.lineAt(firstVisibleFrom);
   const maxVisibleLine = doc.lineAt(maxVisibleTo);
   let visibleRangeIndex = 0;
-  let inSupportedFence = isInsideSupportedFenceBefore(doc, firstVisibleLine.from);
+  let inSupportedFence = isInsideSupportedFenceBeforeLine(doc, firstVisibleLine.number);
 
   for (
     let lineNumber = firstVisibleLine.number;
@@ -126,25 +126,25 @@ function buildEditorDecorations(view: EditorView): DecorationSet {
   return builder.finish();
 }
 
-function isInsideSupportedFenceBefore(
+function isInsideSupportedFenceBeforeLine(
   doc: EditorView["state"]["doc"],
-  position: number,
+  lineNumber: number,
 ): boolean {
-  if (position <= 0) {
+  if (lineNumber <= 1) {
     return false;
   }
 
-  const prefix = doc.sliceString(0, position);
-  const lines = prefix.split(/\r?\n/);
   let inSupportedFence = false;
 
-  for (const line of lines) {
-    if (!inSupportedFence && fencePattern.test(line)) {
+  for (let currentLine = 1; currentLine < lineNumber; currentLine += 1) {
+    const text = doc.line(currentLine).text;
+
+    if (!inSupportedFence && fencePattern.test(text)) {
       inSupportedFence = true;
       continue;
     }
 
-    if (inSupportedFence && closingFencePattern.test(line)) {
+    if (inSupportedFence && closingFencePattern.test(text)) {
       inSupportedFence = false;
     }
   }
@@ -211,7 +211,7 @@ function mergeRanges(ranges: TokenRange[]): TokenRange[] {
     const current = sorted[index];
     const previous = merged[merged.length - 1];
 
-    if (current.from <= previous.to) {
+    if (current.from < previous.to) {
       previous.to = Math.max(previous.to, current.to);
       continue;
     }
