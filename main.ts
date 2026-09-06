@@ -17,6 +17,7 @@ const SUPPORTED_ALIASES = [
 ] as const;
 
 let hclModulePromise: Promise<typeof import("codemirror-lang-hcl")> | null = null;
+let lezerHighlightModulePromise: Promise<typeof import("@lezer/highlight")> | null = null;
 
 function loadHclModule() {
   if (!hclModulePromise) {
@@ -24,6 +25,14 @@ function loadHclModule() {
   }
 
   return hclModulePromise;
+}
+
+function loadLezerHighlightModule() {
+  if (!lezerHighlightModulePromise) {
+    lezerHighlightModulePromise = import("@lezer/highlight");
+  }
+
+  return lezerHighlightModulePromise;
 }
 
 export default class HclTerraformSyntaxHighlightPlugin extends Plugin {
@@ -64,11 +73,36 @@ const hclTerraformEditorHighlighter = ViewPlugin.fromClass(
 function buildEditorDecorations(view: EditorView): DecorationSet {
   const builder = new RangeSetBuilder<Decoration>();
   const doc = view.state.doc;
+  const visibleRanges = view.visibleRanges;
+  if (visibleRanges.length === 0) {
+    return builder.finish();
+  }
+
+  const maxVisibleTo = visibleRanges[visibleRanges.length - 1].to;
+  let visibleRangeIndex = 0;
   let inSupportedFence = false;
 
   for (let lineNumber = 1; lineNumber <= doc.lines; lineNumber += 1) {
     const line = doc.line(lineNumber);
+    if (line.from > maxVisibleTo) {
+      break;
+    }
+
     const text = line.text;
+    const lineFrom = line.from;
+    const lineTo = line.to;
+
+    while (
+      visibleRangeIndex < visibleRanges.length &&
+      visibleRanges[visibleRangeIndex].to <= lineFrom
+    ) {
+      visibleRangeIndex += 1;
+    }
+
+    const isVisibleLine =
+      visibleRangeIndex < visibleRanges.length &&
+      visibleRanges[visibleRangeIndex].from < lineTo &&
+      visibleRanges[visibleRangeIndex].to > lineFrom;
 
     if (!inSupportedFence && fencePattern.test(text)) {
       inSupportedFence = true;
@@ -80,7 +114,7 @@ function buildEditorDecorations(view: EditorView): DecorationSet {
       continue;
     }
 
-    if (inSupportedFence) {
+    if (inSupportedFence && isVisibleLine) {
       addHclTokenDecorations(builder, line.from, text);
     }
   }
@@ -98,7 +132,7 @@ function addHclTokenDecorations(
   const tokens: TokenDecoration[] = [];
 
   collectMatches(tokens, lineStart, codeText, /"([^"\\]|\\.)*"/g, "tok-string");
-  const stringRanges = tokens.filter((token) => token.className === "tok-string");
+  const stringRanges = mergeRanges(tokens.filter((token) => token.className === "tok-string"));
 
   collectMatches(tokens, lineStart, codeText, /(^|[\s{[(,])([A-Za-z_][\w-]*)(?=\s*=)/g, "tok-propertyName", 2, stringRanges);
   collectMatches(tokens, lineStart, codeText, /\b(?:resource|data|module|variable|locals|output|provider|terraform|backend|required_providers|required_version|dynamic|for_each|count|depends_on|lifecycle|provisioner|connection|true|false|null)\b/g, "tok-keyword", 0, stringRanges);
@@ -130,6 +164,34 @@ type TokenDecoration = {
   className: string;
 };
 
+type TokenRange = {
+  from: number;
+  to: number;
+};
+
+function mergeRanges(ranges: TokenRange[]): TokenRange[] {
+  if (ranges.length < 2) {
+    return ranges;
+  }
+
+  const sorted = [...ranges].sort((a, b) => a.from - b.from || a.to - b.to);
+  const merged: TokenRange[] = [sorted[0]];
+
+  for (let index = 1; index < sorted.length; index += 1) {
+    const current = sorted[index];
+    const previous = merged[merged.length - 1];
+
+    if (current.from <= previous.to) {
+      previous.to = Math.max(previous.to, current.to);
+      continue;
+    }
+
+    merged.push({ ...current });
+  }
+
+  return merged;
+}
+
 function collectMatches(
   tokens: TokenDecoration[],
   lineStart: number,
@@ -137,7 +199,7 @@ function collectMatches(
   pattern: RegExp,
   className: string,
   captureGroup = 0,
-  excludedRanges: TokenDecoration[] = [],
+  excludedRanges: TokenRange[] = [],
 ) {
   for (const match of text.matchAll(pattern)) {
     const token = match[captureGroup];
@@ -148,12 +210,40 @@ function collectMatches(
     const prefixLength = captureGroup === 0 ? 0 : match[0].indexOf(token);
     const from = lineStart + match.index + prefixLength;
     const to = from + token.length;
-    if (excludedRanges.some((range) => from < range.to && to > range.from)) {
+    if (rangeOverlaps(excludedRanges, from, to)) {
       continue;
     }
 
     tokens.push({ from, to, className });
   }
+}
+
+function rangeOverlaps(ranges: TokenRange[], from: number, to: number): boolean {
+  if (ranges.length === 0) {
+    return false;
+  }
+
+  let low = 0;
+  let high = ranges.length - 1;
+
+  while (low <= high) {
+    const middle = (low + high) >> 1;
+    const range = ranges[middle];
+
+    if (to <= range.from) {
+      high = middle - 1;
+      continue;
+    }
+
+    if (from >= range.to) {
+      low = middle + 1;
+      continue;
+    }
+
+    return true;
+  }
+
+  return false;
 }
 
 function findLineCommentStart(text: string): number {
@@ -194,7 +284,7 @@ async function renderHighlightedCodeBlock(
 ) {
   const [{ hclLanguage }, { classHighlighter, highlightTree }] = await Promise.all([
     loadHclModule(),
-    import("@lezer/highlight"),
+    loadLezerHighlightModule(),
   ]);
 
   const tree = hclLanguage.parser.parse(source);
