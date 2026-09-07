@@ -50,18 +50,24 @@ export default class HclTerraformSyntaxHighlightPlugin extends Plugin {
 const aliasPattern = SUPPORTED_ALIASES.join("|").replace(/\+/g, "\\+");
 const fencePattern = new RegExp(`^\\s*\`{3,}\\s*(${aliasPattern})(?:\\s|$)`, "i");
 const closingFencePattern = /^\s*`{3,}\s*$/;
+const FENCE_STATE_CHECKPOINT_INTERVAL = 100;
 
 const hclTerraformEditorHighlighter = ViewPlugin.fromClass(
   class {
     decorations: DecorationSet;
+    fenceStateCache = new FenceStateCache();
 
     constructor(view: EditorView) {
-      this.decorations = buildEditorDecorations(view);
+      this.decorations = buildEditorDecorations(view, this.fenceStateCache);
     }
 
     update(update: ViewUpdate) {
+      if (update.docChanged) {
+        this.fenceStateCache.clear();
+      }
+
       if (update.docChanged || update.viewportChanged) {
-        this.decorations = buildEditorDecorations(update.view);
+        this.decorations = buildEditorDecorations(update.view, this.fenceStateCache);
       }
     }
   },
@@ -70,7 +76,96 @@ const hclTerraformEditorHighlighter = ViewPlugin.fromClass(
   },
 );
 
-function buildEditorDecorations(view: EditorView): DecorationSet {
+class FenceStateCache {
+  private readonly states = new Map<number, boolean>([[1, false]]);
+  private readonly checkpointLines = [1];
+
+  clear() {
+    this.states.clear();
+    this.states.set(1, false);
+    this.checkpointLines.length = 1;
+  }
+
+  getStateBeforeLine(
+    doc: EditorView["state"]["doc"],
+    lineNumber: number,
+  ): boolean {
+    const targetLine = Math.max(1, lineNumber);
+    const checkpointLine = this.findNearestCheckpoint(targetLine);
+    let inSupportedFence = this.states.get(checkpointLine) ?? false;
+
+    for (let currentLine = checkpointLine; currentLine < targetLine; currentLine += 1) {
+      inSupportedFence = updateFenceState(inSupportedFence, doc.line(currentLine).text);
+      this.cacheStateBeforeLine(currentLine + 1, inSupportedFence);
+    }
+
+    return inSupportedFence;
+  }
+
+  cacheStateBeforeLine(lineNumber: number, inSupportedFence: boolean) {
+    if (!isFenceStateCheckpoint(lineNumber)) {
+      return;
+    }
+
+    if (!this.states.has(lineNumber)) {
+      const lastCheckpoint = this.checkpointLines[this.checkpointLines.length - 1];
+      if (lineNumber > lastCheckpoint) {
+        this.checkpointLines.push(lineNumber);
+      } else {
+        const insertionIndex = findInsertionIndex(this.checkpointLines, lineNumber);
+        this.checkpointLines.splice(insertionIndex, 0, lineNumber);
+      }
+    }
+
+    this.states.set(lineNumber, inSupportedFence);
+  }
+
+  private findNearestCheckpoint(lineNumber: number): number {
+    const insertionIndex = findInsertionIndex(this.checkpointLines, lineNumber + 1);
+    return this.checkpointLines[Math.max(0, insertionIndex - 1)];
+  }
+}
+
+function isFenceStateCheckpoint(lineNumber: number): boolean {
+  return (
+    lineNumber === 1 ||
+    (lineNumber - 1) % FENCE_STATE_CHECKPOINT_INTERVAL === 0
+  );
+}
+
+function findInsertionIndex(sortedValues: number[], value: number): number {
+  let low = 0;
+  let high = sortedValues.length;
+
+  while (low < high) {
+    const middle = (low + high) >> 1;
+
+    if (sortedValues[middle] < value) {
+      low = middle + 1;
+    } else {
+      high = middle;
+    }
+  }
+
+  return low;
+}
+
+function updateFenceState(inSupportedFence: boolean, text: string): boolean {
+  if (!inSupportedFence && fencePattern.test(text)) {
+    return true;
+  }
+
+  if (inSupportedFence && closingFencePattern.test(text)) {
+    return false;
+  }
+
+  return inSupportedFence;
+}
+
+function buildEditorDecorations(
+  view: EditorView,
+  fenceStateCache: FenceStateCache,
+): DecorationSet {
   const builder = new RangeSetBuilder<Decoration>();
   const doc = view.state.doc;
   const visibleRanges = view.visibleRanges;
@@ -83,7 +178,7 @@ function buildEditorDecorations(view: EditorView): DecorationSet {
   const firstVisibleLine = doc.lineAt(firstVisibleFrom);
   const maxVisibleLine = doc.lineAt(maxVisibleTo);
   let visibleRangeIndex = 0;
-  let inSupportedFence = isInsideSupportedFenceBeforeLine(doc, firstVisibleLine.number);
+  let inSupportedFence = fenceStateCache.getStateBeforeLine(doc, firstVisibleLine.number);
 
   for (
     let lineNumber = firstVisibleLine.number;
@@ -108,48 +203,21 @@ function buildEditorDecorations(view: EditorView): DecorationSet {
       visibleRanges[visibleRangeIndex].from < lineTo &&
       visibleRanges[visibleRangeIndex].to > lineFrom;
 
-    if (!inSupportedFence && fencePattern.test(text)) {
-      inSupportedFence = true;
-      continue;
-    }
+    const wasInsideSupportedFence = inSupportedFence;
+    inSupportedFence = updateFenceState(inSupportedFence, text);
 
-    if (inSupportedFence && closingFencePattern.test(text)) {
-      inSupportedFence = false;
-      continue;
-    }
-
-    if (inSupportedFence && isVisibleLine) {
+    if (
+      wasInsideSupportedFence === inSupportedFence &&
+      inSupportedFence &&
+      isVisibleLine
+    ) {
       addHclTokenDecorations(builder, line.from, text);
     }
+
+    fenceStateCache.cacheStateBeforeLine(lineNumber + 1, inSupportedFence);
   }
 
   return builder.finish();
-}
-
-function isInsideSupportedFenceBeforeLine(
-  doc: EditorView["state"]["doc"],
-  lineNumber: number,
-): boolean {
-  if (lineNumber <= 1) {
-    return false;
-  }
-
-  let inSupportedFence = false;
-
-  for (let currentLine = 1; currentLine < lineNumber; currentLine += 1) {
-    const text = doc.line(currentLine).text;
-
-    if (!inSupportedFence && fencePattern.test(text)) {
-      inSupportedFence = true;
-      continue;
-    }
-
-    if (inSupportedFence && closingFencePattern.test(text)) {
-      inSupportedFence = false;
-    }
-  }
-
-  return inSupportedFence;
 }
 
 function addHclTokenDecorations(
